@@ -2011,15 +2011,6 @@ func handleAnthropicNonStream(w http.ResponseWriter, acc *Account, messages []Ch
 			}
 		}
 
-		if hasCalls {
-			var keptCalls []ToolCall
-			for _, tc := range toolCalls {
-				keptCalls = append(keptCalls, tc)
-			}
-			toolCalls = keptCalls
-			hasCalls = len(toolCalls) > 0
-		}
-
 		// When tool actions were detected, suppress residual framing / identity text.
 		if remaining != "" && hasCalls {
 			log.Printf("[bridge] suppressed %d chars of residual tool framing text", len(remaining))
