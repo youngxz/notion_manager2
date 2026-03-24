@@ -66,12 +66,12 @@ func TestAPIKeyAuthMiddleware_ProtectsModelsRoutes(t *testing.T) {
 }
 
 func TestNewMux_RegistersModelsRoutes(t *testing.T) {
-	original := cloneConfigModelMap(proxy.DefaultModelMap)
-	proxy.DefaultModelMap = map[string]string{
+	original := proxy.SnapshotModelMap()
+	proxy.ReplaceModelMap(map[string]string{
 		"opus-4.6": "avocado-froyo-medium",
-	}
+	})
 	t.Cleanup(func() {
-		proxy.DefaultModelMap = original
+		proxy.ReplaceModelMap(original)
 	})
 
 	pool := proxy.NewAccountPool()
@@ -122,12 +122,4 @@ func TestNewMux_RegistersOpenAIRoutes(t *testing.T) {
 			t.Fatalf("%s: expected registered handler, got 404", tc.path)
 		}
 	}
-}
-
-func cloneConfigModelMap(src map[string]string) map[string]string {
-	dst := make(map[string]string, len(src))
-	for k, v := range src {
-		dst[k] = v
-	}
-	return dst
 }

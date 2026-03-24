@@ -32,6 +32,112 @@ func NewAccountPool() *AccountPool {
 	return &AccountPool{}
 }
 
+type accountQuotaSnapshot struct {
+	Info                 *QuotaInfo
+	CheckedAt            *time.Time
+	ExhaustedAt          *time.Time
+	PermanentlyExhausted bool
+}
+
+func cloneModelEntries(src []ModelEntry) []ModelEntry {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make([]ModelEntry, len(src))
+	copy(dst, src)
+	return dst
+}
+
+func cloneQuotaInfo(src *QuotaInfo) *QuotaInfo {
+	if src == nil {
+		return nil
+	}
+	dst := *src
+	return &dst
+}
+
+func cloneTimePtr(src *time.Time) *time.Time {
+	if src == nil {
+		return nil
+	}
+	dst := *src
+	return &dst
+}
+
+func (acc *Account) modelsSnapshot() []ModelEntry {
+	if acc == nil {
+		return nil
+	}
+	acc.mu.RLock()
+	defer acc.mu.RUnlock()
+	return cloneModelEntries(acc.Models)
+}
+
+func (acc *Account) quotaSnapshot() accountQuotaSnapshot {
+	if acc == nil {
+		return accountQuotaSnapshot{}
+	}
+	acc.mu.RLock()
+	defer acc.mu.RUnlock()
+	return accountQuotaSnapshot{
+		Info:                 cloneQuotaInfo(acc.QuotaInfo),
+		CheckedAt:            cloneTimePtr(acc.QuotaCheckedAt),
+		ExhaustedAt:          cloneTimePtr(acc.QuotaExhaustedAt),
+		PermanentlyExhausted: acc.PermanentlyExhausted,
+	}
+}
+
+func (acc *Account) quotaInfoSnapshot() *QuotaInfo {
+	return acc.quotaSnapshot().Info
+}
+
+func (acc *Account) setModels(models []ModelEntry) {
+	if acc == nil {
+		return
+	}
+	acc.mu.Lock()
+	defer acc.mu.Unlock()
+	acc.Models = cloneModelEntries(models)
+}
+
+func (acc *Account) setQuotaInfo(info *QuotaInfo, checkedAt *time.Time) {
+	if acc == nil {
+		return
+	}
+	acc.mu.Lock()
+	defer acc.mu.Unlock()
+	acc.QuotaInfo = cloneQuotaInfo(info)
+	acc.QuotaCheckedAt = cloneTimePtr(checkedAt)
+}
+
+func (acc *Account) markQuotaExhausted(now time.Time, permanent bool) bool {
+	if acc == nil {
+		return false
+	}
+	acc.mu.Lock()
+	defer acc.mu.Unlock()
+	if acc.QuotaExhaustedAt != nil {
+		if permanent {
+			acc.PermanentlyExhausted = true
+		}
+		return false
+	}
+	ts := now
+	acc.QuotaExhaustedAt = &ts
+	acc.PermanentlyExhausted = permanent
+	return true
+}
+
+func (acc *Account) clearQuotaExhausted() {
+	if acc == nil {
+		return
+	}
+	acc.mu.Lock()
+	defer acc.mu.Unlock()
+	acc.QuotaExhaustedAt = nil
+	acc.PermanentlyExhausted = false
+}
+
 func (p *AccountPool) LoadFromDir(dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -136,19 +242,20 @@ func (p *AccountPool) NextForResearch() *Account {
 		if p.isQuotaExhausted(acc) {
 			continue
 		}
-		if acc.QuotaInfo == nil {
+		quota := acc.quotaInfoSnapshot()
+		if quota == nil {
 			if fallback == nil {
 				fallback = acc
 			}
 			continue
 		}
-		if acc.QuotaInfo.HasPremium {
+		if quota.HasPremium {
 			return acc
 		}
-		if acc.QuotaInfo.ResearchModeUsage < 3 {
-			if fallback == nil || acc.QuotaInfo.ResearchModeUsage < bestUsage {
+		if quota.ResearchModeUsage < 3 {
+			if fallback == nil || quota.ResearchModeUsage < bestUsage {
 				fallback = acc
-				bestUsage = acc.QuotaInfo.ResearchModeUsage
+				bestUsage = quota.ResearchModeUsage
 			}
 			continue
 		}
@@ -199,32 +306,26 @@ func (p *AccountPool) pickBestAccountLocked(exclude map[*Account]bool) *Account 
 // Free plan accounts (200 lifetime credits) will stay exhausted permanently.
 // Paid plan accounts recover when monthly credits reset at billing cycle boundary.
 func (p *AccountPool) MarkQuotaExhausted(acc *Account) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if acc.QuotaExhaustedAt != nil {
+	if !acc.markQuotaExhausted(time.Now(), false) {
 		return // already marked
 	}
-	now := time.Now()
-	acc.QuotaExhaustedAt = &now
 	log.Printf("[quota] marked %s (%s) as exhausted (recovery via API re-check only)", acc.UserName, acc.UserEmail)
 }
 
 // ClearQuotaExhausted removes the exhausted mark (called when API confirms recovery)
 func (p *AccountPool) ClearQuotaExhausted(acc *Account) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	acc.QuotaExhaustedAt = nil
-	acc.PermanentlyExhausted = false
+	acc.clearQuotaExhausted()
 }
 
 func (p *AccountPool) isQuotaExhausted(acc *Account) bool {
-	if acc.PermanentlyExhausted {
+	quota := acc.quotaSnapshot()
+	if quota.PermanentlyExhausted {
 		return true
 	}
-	if acc.QuotaInfo != nil {
-		return !acc.QuotaInfo.IsEligible
+	if quota.Info != nil {
+		return !quota.Info.IsEligible
 	}
-	if acc.QuotaExhaustedAt == nil {
+	if quota.ExhaustedAt == nil {
 		return false
 	}
 	return true
@@ -232,11 +333,7 @@ func (p *AccountPool) isQuotaExhausted(acc *Account) bool {
 
 // MarkPermanentlyExhausted marks a free-plan account as permanently exhausted (never recovers).
 func (p *AccountPool) MarkPermanentlyExhausted(acc *Account) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	acc.PermanentlyExhausted = true
-	now := time.Now()
-	acc.QuotaExhaustedAt = &now
+	acc.markQuotaExhausted(time.Now(), true)
 	log.Printf("[quota] marked %s (%s) as PERMANENTLY exhausted (free plan, no recovery)", acc.UserName, acc.UserEmail)
 }
 
@@ -277,7 +374,7 @@ func (p *AccountPool) AllModels() []ModelEntry {
 	seen := map[string]bool{}
 	var models []ModelEntry
 	for _, acc := range p.accounts {
-		for _, m := range acc.Models {
+		for _, m := range acc.modelsSnapshot() {
 			if !seen[m.ID] {
 				seen[m.ID] = true
 				models = append(models, m)
@@ -358,8 +455,9 @@ func (p *AccountPool) RefreshAll(accountsDir string) {
 	modelsUpdated := false
 
 	for _, acc := range accs {
+		quota := acc.quotaSnapshot()
 		// Skip permanently exhausted accounts (free plan, no recovery possible)
-		if acc.PermanentlyExhausted {
+		if quota.PermanentlyExhausted {
 			if isFreePlan(acc) {
 				log.Printf("[refresh] %s (%s): ⛔ permanently exhausted (skipped)", acc.UserName, acc.UserEmail)
 				continue
@@ -374,8 +472,7 @@ func (p *AccountPool) RefreshAll(accountsDir string) {
 			log.Printf("[refresh] %s (%s): quota check failed: %v", acc.UserName, acc.UserEmail, err)
 		} else {
 			now := time.Now()
-			acc.QuotaInfo = info
-			acc.QuotaCheckedAt = &now
+			acc.setQuotaInfo(info, &now)
 
 			if info.IsEligible {
 				remaining := basicRemaining(info)
@@ -387,7 +484,7 @@ func (p *AccountPool) RefreshAll(accountsDir string) {
 					premiumInfo += fmt.Sprintf(", research=%d", info.ResearchModeUsage)
 				}
 				// If was exhausted, clear the flag — API confirmed recovery
-				if acc.QuotaExhaustedAt != nil {
+				if quota.ExhaustedAt != nil {
 					log.Printf("[refresh] %s (%s): ✅ RECOVERED! (space %d/%d, user %d/%d, remaining ~%d%s)",
 						acc.UserName, acc.UserEmail, info.SpaceUsage, info.SpaceLimit, info.UserUsage, info.UserLimit, remaining, premiumInfo)
 					p.ClearQuotaExhausted(acc)
@@ -417,7 +514,7 @@ func (p *AccountPool) RefreshAll(accountsDir string) {
 		if err != nil {
 			log.Printf("[refresh] %s (%s): model fetch failed: %v", acc.UserName, acc.UserEmail, err)
 		} else if len(models) > 0 {
-			acc.Models = models
+			acc.setModels(models)
 			modelsUpdated = true
 			log.Printf("[refresh] %s (%s): fetched %d models", acc.UserName, acc.UserEmail, len(models))
 		}
@@ -427,7 +524,7 @@ func (p *AccountPool) RefreshAll(accountsDir string) {
 		// Update DefaultModelMap from fetched models
 		p.mu.RLock()
 		for _, acc := range p.accounts {
-			for _, m := range acc.Models {
+			for _, m := range acc.modelsSnapshot() {
 				normalizedName := normalizeModelName(m.Name)
 				if normalizedName != "" {
 					SetModelID(normalizedName, m.ID)
@@ -460,6 +557,8 @@ func (p *AccountPool) SaveAccounts(dir string) {
 	p.mu.RUnlock()
 
 	for _, acc := range accs {
+		models := acc.modelsSnapshot()
+		quota := acc.quotaSnapshot()
 		// Find the matching file by user_email
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -484,32 +583,32 @@ func (p *AccountPool) SaveAccounts(dir string) {
 			}
 
 			// Update models
-			if len(acc.Models) > 0 {
+			if len(models) > 0 {
 				var modelEntries []map[string]string
-				for _, m := range acc.Models {
+				for _, m := range models {
 					modelEntries = append(modelEntries, map[string]string{"id": m.ID, "name": m.Name})
 				}
 				existing["available_models"] = modelEntries
 			}
 
 			// Update quota info
-			if acc.QuotaInfo != nil {
+			if quota.Info != nil {
 				existing["quota_info"] = map[string]interface{}{
-					"is_eligible":         acc.QuotaInfo.IsEligible,
-					"space_usage":         acc.QuotaInfo.SpaceUsage,
-					"space_limit":         acc.QuotaInfo.SpaceLimit,
-					"user_usage":          acc.QuotaInfo.UserUsage,
-					"user_limit":          acc.QuotaInfo.UserLimit,
-					"last_usage_at":       acc.QuotaInfo.LastUsageAtMs,
-					"research_mode_usage": acc.QuotaInfo.ResearchModeUsage,
-					"has_premium":         acc.QuotaInfo.HasPremium,
-					"premium_balance":     acc.QuotaInfo.PremiumBalance,
-					"premium_usage":       acc.QuotaInfo.PremiumUsage,
-					"premium_limit":       acc.QuotaInfo.PremiumLimit,
+					"is_eligible":         quota.Info.IsEligible,
+					"space_usage":         quota.Info.SpaceUsage,
+					"space_limit":         quota.Info.SpaceLimit,
+					"user_usage":          quota.Info.UserUsage,
+					"user_limit":          quota.Info.UserLimit,
+					"last_usage_at":       quota.Info.LastUsageAtMs,
+					"research_mode_usage": quota.Info.ResearchModeUsage,
+					"has_premium":         quota.Info.HasPremium,
+					"premium_balance":     quota.Info.PremiumBalance,
+					"premium_usage":       quota.Info.PremiumUsage,
+					"premium_limit":       quota.Info.PremiumLimit,
 				}
 			}
-			if acc.QuotaCheckedAt != nil {
-				existing["quota_checked_at"] = acc.QuotaCheckedAt.Format(time.RFC3339)
+			if quota.CheckedAt != nil {
+				existing["quota_checked_at"] = quota.CheckedAt.Format(time.RFC3339)
 			}
 
 			// Write back
@@ -540,46 +639,48 @@ func (p *AccountPool) GetAccountDetails() []map[string]interface{} {
 	defer p.mu.RUnlock()
 	var details []map[string]interface{}
 	for _, acc := range p.accounts {
+		quota := acc.quotaSnapshot()
+		models := acc.modelsSnapshot()
 		entry := map[string]interface{}{
 			"email":     acc.UserEmail,
 			"name":      acc.UserName,
 			"plan":      acc.PlanType,
 			"space":     acc.SpaceName,
 			"exhausted": p.isQuotaExhausted(acc),
-			"permanent": acc.PermanentlyExhausted,
+			"permanent": quota.PermanentlyExhausted,
 		}
-		if acc.QuotaInfo != nil {
-			entry["eligible"] = acc.QuotaInfo.IsEligible
-			entry["usage"] = acc.QuotaInfo.SpaceUsage
-			entry["limit"] = acc.QuotaInfo.SpaceLimit
-			entry["space_usage"] = acc.QuotaInfo.SpaceUsage
-			entry["space_limit"] = acc.QuotaInfo.SpaceLimit
-			entry["space_remaining"] = quotaRemaining(acc.QuotaInfo.SpaceLimit, acc.QuotaInfo.SpaceUsage)
-			entry["user_usage"] = acc.QuotaInfo.UserUsage
-			entry["user_limit"] = acc.QuotaInfo.UserLimit
-			entry["user_remaining"] = quotaRemaining(acc.QuotaInfo.UserLimit, acc.QuotaInfo.UserUsage)
-			entry["remaining"] = basicRemaining(acc.QuotaInfo)
-			entry["last_usage_at"] = acc.QuotaInfo.LastUsageAtMs
+		if quota.Info != nil {
+			entry["eligible"] = quota.Info.IsEligible
+			entry["usage"] = quota.Info.SpaceUsage
+			entry["limit"] = quota.Info.SpaceLimit
+			entry["space_usage"] = quota.Info.SpaceUsage
+			entry["space_limit"] = quota.Info.SpaceLimit
+			entry["space_remaining"] = quotaRemaining(quota.Info.SpaceLimit, quota.Info.SpaceUsage)
+			entry["user_usage"] = quota.Info.UserUsage
+			entry["user_limit"] = quota.Info.UserLimit
+			entry["user_remaining"] = quotaRemaining(quota.Info.UserLimit, quota.Info.UserUsage)
+			entry["remaining"] = basicRemaining(quota.Info)
+			entry["last_usage_at"] = quota.Info.LastUsageAtMs
 			// Research mode (V1)
-			entry["research_usage"] = acc.QuotaInfo.ResearchModeUsage
+			entry["research_usage"] = quota.Info.ResearchModeUsage
 			// Premium credit data (V2)
-			entry["has_premium"] = acc.QuotaInfo.HasPremium
-			entry["premium_balance"] = acc.QuotaInfo.PremiumBalance
-			entry["premium_usage"] = acc.QuotaInfo.PremiumUsage
-			entry["premium_limit"] = acc.QuotaInfo.PremiumLimit
+			entry["has_premium"] = quota.Info.HasPremium
+			entry["premium_balance"] = quota.Info.PremiumBalance
+			entry["premium_usage"] = quota.Info.PremiumUsage
+			entry["premium_limit"] = quota.Info.PremiumLimit
 		}
-		if acc.QuotaCheckedAt != nil {
-			entry["checked_at"] = acc.QuotaCheckedAt.Format(time.RFC3339)
+		if quota.CheckedAt != nil {
+			entry["checked_at"] = quota.CheckedAt.Format(time.RFC3339)
 		}
-		if p.isQuotaExhausted(acc) && acc.QuotaExhaustedAt != nil {
-			entry["exhausted_at"] = acc.QuotaExhaustedAt.Format(time.RFC3339)
+		if p.isQuotaExhausted(acc) && quota.ExhaustedAt != nil {
+			entry["exhausted_at"] = quota.ExhaustedAt.Format(time.RFC3339)
 		}
 		// Models
-		var models []map[string]string
-		for _, m := range acc.Models {
-			models = append(models, map[string]string{"id": m.ID, "name": m.Name})
+		var modelEntries []map[string]string
+		for _, m := range models {
+			modelEntries = append(modelEntries, map[string]string{"id": m.ID, "name": m.Name})
 		}
-		entry["models"] = models
+		entry["models"] = modelEntries
 		details = append(details, entry)
 	}
 	return details
@@ -591,35 +692,36 @@ func (p *AccountPool) GetQuotaSummary() []map[string]interface{} {
 	defer p.mu.RUnlock()
 	var summary []map[string]interface{}
 	for _, acc := range p.accounts {
+		quota := acc.quotaSnapshot()
 		entry := map[string]interface{}{
 			"email":     acc.UserEmail,
 			"name":      acc.UserName,
 			"plan":      acc.PlanType,
 			"exhausted": p.isQuotaExhausted(acc),
-			"permanent": acc.PermanentlyExhausted,
+			"permanent": quota.PermanentlyExhausted,
 		}
-		if acc.QuotaInfo != nil {
-			entry["eligible"] = acc.QuotaInfo.IsEligible
-			entry["usage"] = acc.QuotaInfo.SpaceUsage
-			entry["limit"] = acc.QuotaInfo.SpaceLimit
-			entry["space_usage"] = acc.QuotaInfo.SpaceUsage
-			entry["space_limit"] = acc.QuotaInfo.SpaceLimit
-			entry["space_remaining"] = quotaRemaining(acc.QuotaInfo.SpaceLimit, acc.QuotaInfo.SpaceUsage)
-			entry["user_usage"] = acc.QuotaInfo.UserUsage
-			entry["user_limit"] = acc.QuotaInfo.UserLimit
-			entry["user_remaining"] = quotaRemaining(acc.QuotaInfo.UserLimit, acc.QuotaInfo.UserUsage)
-			entry["remaining"] = basicRemaining(acc.QuotaInfo)
-			entry["last_usage_at"] = acc.QuotaInfo.LastUsageAtMs
+		if quota.Info != nil {
+			entry["eligible"] = quota.Info.IsEligible
+			entry["usage"] = quota.Info.SpaceUsage
+			entry["limit"] = quota.Info.SpaceLimit
+			entry["space_usage"] = quota.Info.SpaceUsage
+			entry["space_limit"] = quota.Info.SpaceLimit
+			entry["space_remaining"] = quotaRemaining(quota.Info.SpaceLimit, quota.Info.SpaceUsage)
+			entry["user_usage"] = quota.Info.UserUsage
+			entry["user_limit"] = quota.Info.UserLimit
+			entry["user_remaining"] = quotaRemaining(quota.Info.UserLimit, quota.Info.UserUsage)
+			entry["remaining"] = basicRemaining(quota.Info)
+			entry["last_usage_at"] = quota.Info.LastUsageAtMs
 			// Research mode (V1)
-			entry["research_usage"] = acc.QuotaInfo.ResearchModeUsage
+			entry["research_usage"] = quota.Info.ResearchModeUsage
 			// Premium credit data (V2)
-			entry["has_premium"] = acc.QuotaInfo.HasPremium
-			entry["premium_balance"] = acc.QuotaInfo.PremiumBalance
-			entry["premium_usage"] = acc.QuotaInfo.PremiumUsage
-			entry["premium_limit"] = acc.QuotaInfo.PremiumLimit
+			entry["has_premium"] = quota.Info.HasPremium
+			entry["premium_balance"] = quota.Info.PremiumBalance
+			entry["premium_usage"] = quota.Info.PremiumUsage
+			entry["premium_limit"] = quota.Info.PremiumLimit
 		}
-		if acc.QuotaCheckedAt != nil {
-			entry["checked_at"] = acc.QuotaCheckedAt.Format(time.RFC3339)
+		if quota.CheckedAt != nil {
+			entry["checked_at"] = quota.CheckedAt.Format(time.RFC3339)
 		}
 		summary = append(summary, entry)
 	}
@@ -697,10 +799,11 @@ func basicRemaining(info *QuotaInfo) int {
 }
 
 func accountQuotaPriority(acc *Account) int {
-	if acc == nil || acc.QuotaInfo == nil {
+	quota := acc.quotaInfoSnapshot()
+	if quota == nil {
 		return -1
 	}
-	return basicRemaining(acc.QuotaInfo)
+	return basicRemaining(quota)
 }
 
 func generateUUIDv4() string {

@@ -314,7 +314,8 @@ func setYAMLBool(mapping *yaml.Node, key string, value bool) {
 // isFreePlan returns true if the account is on a free plan where basic credits (200 lifetime)
 // never reset. Paid plans (plus, business, enterprise) have monthly premium credits that reset.
 func isFreePlan(acc *Account) bool {
-	if acc.QuotaInfo != nil && (acc.QuotaInfo.HasPremium || acc.QuotaInfo.PremiumLimit > 0 || acc.QuotaInfo.PremiumBalance > 0) {
+	quota := acc.quotaInfoSnapshot()
+	if quota != nil && (quota.HasPremium || quota.PremiumLimit > 0 || quota.PremiumBalance > 0) {
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(acc.PlanType)) {
@@ -323,7 +324,7 @@ func isFreePlan(acc *Account) bool {
 	default:
 		// For team plans, check if they actually have a paid subscription
 		// by looking at quota info — if no premium credits exist, treat as free.
-		if acc.QuotaInfo != nil && !acc.QuotaInfo.HasPremium {
+		if quota != nil && !quota.HasPremium {
 			return true
 		}
 		return false

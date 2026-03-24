@@ -1012,10 +1012,11 @@ func HandleAnthropicMessages(pool *AccountPool) http.HandlerFunc {
 
 			if reqErr != nil && errors.Is(reqErr, ErrResearchQuotaExhausted) {
 				// Research mode quota exhausted — account can still serve normal chat
+				quota := acc.quotaInfoSnapshot()
 				log.Printf("[research-quota] %s research quota exhausted (research_usage=%d), trying next account",
 					acc.UserEmail, func() int {
-						if acc.QuotaInfo != nil {
-							return acc.QuotaInfo.ResearchModeUsage
+						if quota != nil {
+							return quota.ResearchModeUsage
 						}
 						return -1
 					}())

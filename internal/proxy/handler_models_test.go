@@ -9,13 +9,13 @@ import (
 )
 
 func TestHandlePublicModels_UsesPoolModelsAndNormalizesIDs(t *testing.T) {
-	original := cloneModelMap(DefaultModelMap)
-	DefaultModelMap = map[string]string{
+	original := SnapshotModelMap()
+	ReplaceModelMap(map[string]string{
 		"opus-4.6": "avocado-froyo-medium",
 		"gpt-5.4":  "oval-kumquat-medium",
-	}
+	})
 	t.Cleanup(func() {
-		DefaultModelMap = original
+		ReplaceModelMap(original)
 	})
 
 	pool := NewAccountPool()
@@ -67,13 +67,13 @@ func TestHandlePublicModels_UsesPoolModelsAndNormalizesIDs(t *testing.T) {
 }
 
 func TestHandlePublicModels_FallsBackToDefaultModelMap(t *testing.T) {
-	original := cloneModelMap(DefaultModelMap)
-	DefaultModelMap = map[string]string{
+	original := SnapshotModelMap()
+	ReplaceModelMap(map[string]string{
 		"gemini-2.5-flash": "vertex-gemini-2.5-flash",
 		"sonnet-4.6":       "almond-croissant-low",
-	}
+	})
 	t.Cleanup(func() {
-		DefaultModelMap = original
+		ReplaceModelMap(original)
 	})
 
 	pool := NewAccountPool()
@@ -113,12 +113,4 @@ func TestHandlePublicModels_MethodNotAllowed(t *testing.T) {
 	if allow := rec.Header().Get("Allow"); allow != http.MethodGet {
 		t.Fatalf("expected Allow=GET, got %q", allow)
 	}
-}
-
-func cloneModelMap(src map[string]string) map[string]string {
-	dst := make(map[string]string, len(src))
-	for k, v := range src {
-		dst[k] = v
-	}
-	return dst
 }

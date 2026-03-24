@@ -214,7 +214,7 @@ func DiscoverAccountFromToken(tokenV2 string) (*Account, error) {
 	if err != nil {
 		log.Printf("[add-account] model fetch failed (non-fatal): %v", err)
 	} else {
-		acc.Models = models
+		acc.setModels(models)
 	}
 
 	// Step 3: Check quota
@@ -223,8 +223,7 @@ func DiscoverAccountFromToken(tokenV2 string) (*Account, error) {
 		log.Printf("[add-account] quota check failed (non-fatal): %v", err)
 	} else {
 		now := time.Now()
-		acc.QuotaInfo = quota
-		acc.QuotaCheckedAt = &now
+		acc.setQuotaInfo(quota, &now)
 	}
 
 	return acc, nil
@@ -266,30 +265,32 @@ func SaveAccountToFile(acc *Account, dir string) (string, error) {
 		"browser_id":     acc.BrowserID,
 		"device_id":      acc.DeviceID,
 	}
-	if len(acc.Models) > 0 {
+	modelSnapshot := acc.modelsSnapshot()
+	quota := acc.quotaSnapshot()
+	if len(modelSnapshot) > 0 {
 		var models []map[string]string
-		for _, m := range acc.Models {
+		for _, m := range modelSnapshot {
 			models = append(models, map[string]string{"id": m.ID, "name": m.Name})
 		}
 		data["available_models"] = models
 	}
-	if acc.QuotaInfo != nil {
+	if quota.Info != nil {
 		data["quota_info"] = map[string]interface{}{
-			"is_eligible":         acc.QuotaInfo.IsEligible,
-			"space_usage":         acc.QuotaInfo.SpaceUsage,
-			"space_limit":         acc.QuotaInfo.SpaceLimit,
-			"user_usage":          acc.QuotaInfo.UserUsage,
-			"user_limit":          acc.QuotaInfo.UserLimit,
-			"last_usage_at":       acc.QuotaInfo.LastUsageAtMs,
-			"research_mode_usage": acc.QuotaInfo.ResearchModeUsage,
-			"has_premium":         acc.QuotaInfo.HasPremium,
-			"premium_balance":     acc.QuotaInfo.PremiumBalance,
-			"premium_usage":       acc.QuotaInfo.PremiumUsage,
-			"premium_limit":       acc.QuotaInfo.PremiumLimit,
+			"is_eligible":         quota.Info.IsEligible,
+			"space_usage":         quota.Info.SpaceUsage,
+			"space_limit":         quota.Info.SpaceLimit,
+			"user_usage":          quota.Info.UserUsage,
+			"user_limit":          quota.Info.UserLimit,
+			"last_usage_at":       quota.Info.LastUsageAtMs,
+			"research_mode_usage": quota.Info.ResearchModeUsage,
+			"has_premium":         quota.Info.HasPremium,
+			"premium_balance":     quota.Info.PremiumBalance,
+			"premium_usage":       quota.Info.PremiumUsage,
+			"premium_limit":       quota.Info.PremiumLimit,
 		}
 	}
-	if acc.QuotaCheckedAt != nil {
-		data["quota_checked_at"] = acc.QuotaCheckedAt.Format(time.RFC3339)
+	if quota.CheckedAt != nil {
+		data["quota_checked_at"] = quota.CheckedAt.Format(time.RFC3339)
 	}
 	data["extracted_at"] = time.Now().Format(time.RFC3339)
 

@@ -2,12 +2,14 @@ package proxy
 
 import (
 	"encoding/json"
+	"sync"
 	"time"
 )
 
 // ========== Account ==========
 
 type Account struct {
+	mu            sync.RWMutex
 	TokenV2       string       `json:"token_v2"`
 	UserID        string       `json:"user_id"`
 	UserName      string       `json:"user_name"`
