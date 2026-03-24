@@ -417,16 +417,23 @@ type openAIResponsesStreamTranscoder struct {
 	messageText     strings.Builder
 	toolBlocks      map[int]*responsesStreamToolItem
 	toolItems       []*responsesStreamToolItem
+	// Reasoning (thinking) state
+	reasoningStarted bool
+	reasoningItemID  string
+	reasoningIndex   int
+	reasoningText    strings.Builder
+	thinkingBlocks   map[int]bool // Anthropic block index → is thinking block
 }
 
 func newOpenAIResponsesStreamTranscoder(w http.ResponseWriter, flusher http.Flusher, responseID, model string, created int64) *openAIResponsesStreamTranscoder {
 	return &openAIResponsesStreamTranscoder{
-		w:          w,
-		flusher:    flusher,
-		responseID: responseID,
-		model:      model,
-		created:    created,
-		toolBlocks: make(map[int]*responsesStreamToolItem),
+		w:              w,
+		flusher:        flusher,
+		responseID:     responseID,
+		model:          model,
+		created:        created,
+		toolBlocks:     make(map[int]*responsesStreamToolItem),
+		thinkingBlocks: make(map[int]bool),
 	}
 }
 
@@ -500,7 +507,17 @@ func (t *openAIResponsesStreamTranscoder) ensureMessageItem() error {
 }
 
 func (t *openAIResponsesStreamTranscoder) buildFinalResponseObject() map[string]interface{} {
-	output := make([]map[string]interface{}, 0, 1+len(t.toolItems))
+	output := make([]map[string]interface{}, 0, 2+len(t.toolItems))
+	if t.reasoningStarted {
+		output = append(output, map[string]interface{}{
+			"id":   t.reasoningItemID,
+			"type": "reasoning",
+			"summary": []map[string]interface{}{{
+				"type": "summary_text",
+				"text": t.reasoningText.String(),
+			}},
+		})
+	}
 	if t.messageStarted {
 		output = append(output, map[string]interface{}{
 			"id":     t.messageItemID,
@@ -608,6 +625,41 @@ func (t *openAIResponsesStreamTranscoder) finalizeToolItem(index int) error {
 	})
 }
 
+func (t *openAIResponsesStreamTranscoder) finalizeReasoningItem() error {
+	finalText := t.reasoningText.String()
+	summaryPart := map[string]interface{}{
+		"type": "summary_text",
+		"text": finalText,
+	}
+	if err := t.emit("response.reasoning_summary_text.done", map[string]interface{}{
+		"response_id":   t.responseID,
+		"item_id":       t.reasoningItemID,
+		"output_index":  t.reasoningIndex,
+		"summary_index": 0,
+		"text":          finalText,
+	}); err != nil {
+		return err
+	}
+	if err := t.emit("response.reasoning_summary_part.done", map[string]interface{}{
+		"response_id":   t.responseID,
+		"item_id":       t.reasoningItemID,
+		"output_index":  t.reasoningIndex,
+		"summary_index": 0,
+		"part":          summaryPart,
+	}); err != nil {
+		return err
+	}
+	return t.emit("response.output_item.done", map[string]interface{}{
+		"response_id":  t.responseID,
+		"output_index": t.reasoningIndex,
+		"item": map[string]interface{}{
+			"id":      t.reasoningItemID,
+			"type":    "reasoning",
+			"summary": []interface{}{summaryPart},
+		},
+	})
+}
+
 func (t *openAIResponsesStreamTranscoder) HandleFrame(frame anthropicSSEFrame) error {
 	var payload map[string]interface{}
 	if len(frame.Data) > 0 {
@@ -630,7 +682,39 @@ func (t *openAIResponsesStreamTranscoder) HandleFrame(frame anthropicSSEFrame) e
 		}
 		index := intValue(payload["index"])
 		block, _ := payload["content_block"].(map[string]interface{})
-		if stringValue(block["type"]) == "tool_use" {
+		blockType := stringValue(block["type"])
+		if blockType == "thinking" {
+			t.thinkingBlocks[index] = true
+			if !t.reasoningStarted {
+				t.reasoningStarted = true
+				t.reasoningIndex = t.nextOutputIndex
+				t.nextOutputIndex++
+				t.reasoningItemID = "rs_" + compactUUID()
+				if err := t.emit("response.output_item.added", map[string]interface{}{
+					"response_id":  t.responseID,
+					"output_index": t.reasoningIndex,
+					"item": map[string]interface{}{
+						"id":      t.reasoningItemID,
+						"type":    "reasoning",
+						"summary": []interface{}{},
+					},
+				}); err != nil {
+					return err
+				}
+				return t.emit("response.reasoning_summary_part.added", map[string]interface{}{
+					"response_id":   t.responseID,
+					"item_id":       t.reasoningItemID,
+					"output_index":  t.reasoningIndex,
+					"summary_index": 0,
+					"part": map[string]interface{}{
+						"type": "summary_text",
+						"text": "",
+					},
+				})
+			}
+			return nil
+		}
+		if blockType == "tool_use" {
 			item := &responsesStreamToolItem{
 				ItemID:      "fc_" + compactUUID(),
 				OutputIndex: t.nextOutputIndex,
@@ -656,6 +740,19 @@ func (t *openAIResponsesStreamTranscoder) HandleFrame(frame anthropicSSEFrame) e
 	case "content_block_delta":
 		delta, _ := payload["delta"].(map[string]interface{})
 		switch stringValue(delta["type"]) {
+		case "thinking_delta":
+			text := stringValue(delta["thinking"])
+			if text == "" {
+				return nil
+			}
+			t.reasoningText.WriteString(text)
+			return t.emit("response.reasoning_summary_text.delta", map[string]interface{}{
+				"response_id":   t.responseID,
+				"item_id":       t.reasoningItemID,
+				"output_index":  t.reasoningIndex,
+				"summary_index": 0,
+				"delta":         text,
+			})
 		case "text_delta":
 			text := stringValue(delta["text"])
 			if text == "" {
@@ -688,7 +785,16 @@ func (t *openAIResponsesStreamTranscoder) HandleFrame(frame anthropicSSEFrame) e
 			})
 		}
 	case "content_block_stop":
-		return t.finalizeToolItem(intValue(payload["index"]))
+		index := intValue(payload["index"])
+		if t.thinkingBlocks[index] {
+			delete(t.thinkingBlocks, index)
+			// Only finalize reasoning when the last thinking block closes
+			if len(t.thinkingBlocks) == 0 && t.reasoningStarted {
+				return t.finalizeReasoningItem()
+			}
+			return nil
+		}
+		return t.finalizeToolItem(index)
 	case "message_delta":
 		if usage, ok := payload["usage"].(map[string]interface{}); ok {
 			t.outputTokens = intValue(usage["output_tokens"])

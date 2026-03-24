@@ -212,3 +212,50 @@ func TestOpenAIResponsesStreamTranscoder_EmitsCompletedResponse(t *testing.T) {
 		t.Fatalf("missing function call arguments: %s", body)
 	}
 }
+
+func TestOpenAIResponsesStreamTranscoder_ThinkingBlocks(t *testing.T) {
+	rr := httptest.NewRecorder()
+	transcoder := newOpenAIResponsesStreamTranscoder(rr, rr, "resp_think", "claude-opus-4.6", 789)
+	frames := []anthropicSSEFrame{
+		{Event: "message_start", Data: json.RawMessage(`{"message":{"usage":{"input_tokens":5}}}`)},
+		{Event: "content_block_start", Data: json.RawMessage(`{"index":0,"content_block":{"type":"thinking","thinking":""}}`)},
+		{Event: "content_block_delta", Data: json.RawMessage(`{"index":0,"delta":{"type":"thinking_delta","thinking":"Let me think..."}}`)},
+		{Event: "content_block_delta", Data: json.RawMessage(`{"index":0,"delta":{"type":"signature_delta","signature":"sig123"}}`)},
+		{Event: "content_block_stop", Data: json.RawMessage(`{"index":0}`)},
+		{Event: "content_block_start", Data: json.RawMessage(`{"index":1,"content_block":{"type":"text","text":""}}`)},
+		{Event: "content_block_delta", Data: json.RawMessage(`{"index":1,"delta":{"type":"text_delta","text":"Hello!"}}`)},
+		{Event: "content_block_stop", Data: json.RawMessage(`{"index":1}`)},
+		{Event: "message_delta", Data: json.RawMessage(`{"delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":20}}`)},
+	}
+	for _, frame := range frames {
+		if err := transcoder.HandleFrame(frame); err != nil {
+			t.Fatalf("HandleFrame(%s) error = %v", frame.Event, err)
+		}
+	}
+	body := rr.Body.String()
+	for _, required := range []string{
+		"event: response.created",
+		"event: response.in_progress",
+		"event: response.output_item.added",
+		"event: response.reasoning_summary_part.added",
+		"event: response.reasoning_summary_text.delta",
+		"event: response.reasoning_summary_text.done",
+		"event: response.reasoning_summary_part.done",
+		"event: response.content_part.added",
+		"event: response.output_text.delta",
+		"event: response.output_text.done",
+		"event: response.content_part.done",
+		"event: response.output_item.done",
+		"event: response.completed",
+	} {
+		if !strings.Contains(body, required) {
+			t.Fatalf("missing %s in body:\n%s", required, body)
+		}
+	}
+	if !strings.Contains(body, "Let me think...") {
+		t.Fatalf("missing thinking text in body:\n%s", body)
+	}
+	if !strings.Contains(body, "Hello!") {
+		t.Fatalf("missing text content in body:\n%s", body)
+	}
+}
