@@ -144,8 +144,8 @@ func DefaultConfig() *Config {
 			LiveCheckSeconds:    5,
 		},
 		Browser: BrowserConfig{
-			UserAgent:       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
-			SecChUA:         `"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"`,
+			UserAgent:       "",
+			SecChUA:         "",
 			SecChUAPlatform: `"Windows"`,
 		},
 		Register: RegisterConfig{
@@ -279,6 +279,15 @@ func LoadConfig(configPath string) (*Config, error) {
 	if v := os.Getenv("SEC_CH_UA_PLATFORM"); v != "" {
 		cfg.Browser.SecChUAPlatform = v
 	}
+
+	_, fullVer, majorVer := netutil.GetCurrentChromeProfile()
+	if cfg.Browser.UserAgent == "" {
+		cfg.Browser.UserAgent = netutil.GenerateUserAgent(fullVer)
+	}
+	if cfg.Browser.SecChUA == "" {
+		cfg.Browser.SecChUA = netutil.GenerateSecChUa(majorVer)
+	}
+
 	if v := os.Getenv("ENABLE_WEB_SEARCH"); v != "" {
 		b := strings.EqualFold(v, "true") || v == "1"
 		cfg.Proxy.EnableWebSearch = &b
