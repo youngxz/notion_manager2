@@ -186,13 +186,14 @@ func (c *chromeTransport) dialChrome(ctx context.Context, network, addr string, 
 	if err != nil {
 		return nil, fmt.Errorf("tcp dial: %w", err)
 	}
+	profile, _, _ := netutil.GetCurrentChromeProfile()
 	cfg := &utls.Config{
 		ServerName:         host,
 		InsecureSkipVerify: false,
 		MinVersion:         tls.VersionTLS12,
 		NextProtos:         alpn,
 	}
-	tlsConn := utls.UClient(rawConn, cfg, utls.HelloChrome_120)
+	tlsConn := utls.UClient(rawConn, cfg, profile)
 	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		rawConn.Close()
 		return nil, fmt.Errorf("tls handshake: %w", err)

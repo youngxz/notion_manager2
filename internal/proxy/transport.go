@@ -78,6 +78,9 @@ func dialChromeTLS(ctx context.Context, network, addr string) (net.Conn, error) 
 		return nil, fmt.Errorf("tcp dial: %w", err)
 	}
 
+	// Get the globally aligned Chrome profile to rotate JA3/JA4 fingerprint synchronously with HTTP Headers
+	profile, _, _ := netutil.GetCurrentChromeProfile()
+
 	// Create uTLS connection with Chrome fingerprint + ALPN h2
 	tlsConfig := &utls.Config{
 		ServerName:         host,
@@ -86,7 +89,7 @@ func dialChromeTLS(ctx context.Context, network, addr string) (net.Conn, error) 
 		NextProtos:         []string{"h2", "http/1.1"},
 	}
 
-	tlsConn := utls.UClient(rawConn, tlsConfig, utls.HelloChrome_Auto)
+	tlsConn := utls.UClient(rawConn, tlsConfig, profile)
 
 	if err := tlsConn.HandshakeContext(dialCtx); err != nil {
 		rawConn.Close()
