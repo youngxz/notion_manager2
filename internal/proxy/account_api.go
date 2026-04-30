@@ -16,7 +16,11 @@ import (
 // DiscoverAccountFromToken calls Notion APIs using the given token_v2 to discover
 // all account information (user, space, models, quota).
 func DiscoverAccountFromToken(tokenV2 string) (*Account, error) {
-	client := getChromeHTTPClient(AppConfig.APITimeoutDuration())
+	// DiscoverAccount doesn't have an Account object yet, so we just use the global fallback.
+	// We'll create a temporary uninitialized account strictly to generate a client,
+	// which will fetch independent TLS context
+	tempAcc := &Account{}
+	client := tempAcc.GetHTTPClient(AppConfig.APITimeoutDuration())
 
 	// Step 1: Call loadUserContent to get user/space info
 	req, err := http.NewRequest("POST", NotionAPIBase+"/loadUserContent", bytes.NewReader([]byte("{}")))
@@ -26,7 +30,7 @@ func DiscoverAccountFromToken(tokenV2 string) (*Account, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Cookie", "token_v2="+tokenV2)
-	req.Header.Set("User-Agent", AppConfig.Browser.UserAgent)
+	req.Header.Set("User-Agent", tempAcc.GetUserAgent())
 
 	resp, err := client.Do(req)
 	if err != nil {

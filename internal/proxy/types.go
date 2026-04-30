@@ -43,6 +43,12 @@ type Account struct {
 	// probed yet; we treat it as unknown / usable until the next refresh.
 	SpaceCount         int        `json:"-"`
 	WorkspaceCheckedAt *time.Time `json:"-"`
+
+	// Anti-ban: Account specific environment isolation
+	UserAgent     string       `json:"-"`
+	SecChUa       string       `json:"-"`
+	TLSProfile    string       `json:"-"` // Not strictly typed to avoid import cycles in types.go, handled in logic.
+	HTTPTransport interface{}  `json:"-"`
 }
 
 // QuotaInfo holds AI usage quota information from V1 + V2 APIs
