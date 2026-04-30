@@ -1374,7 +1374,7 @@ func CallInference(acc *Account, messages []ChatMessage, model string, disableBu
 
 	setNotionHeaders(req, acc)
 
-	client := getChromeHTTPClient(AppConfig.InferenceTimeoutDuration())
+	client := acc.GetHTTPClient(AppConfig.InferenceTimeoutDuration())
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("send request: %w", err)
@@ -1598,7 +1598,7 @@ func setNotionHeaders(req *http.Request, acc *Account) {
 	req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
 
 	// Chrome Client Hints (sec-ch-ua) — critical for browser fingerprint
-	req.Header.Set("sec-ch-ua", AppConfig.Browser.SecChUA)
+	req.Header.Set("sec-ch-ua", acc.GetSecChUa())
 	req.Header.Set("sec-ch-ua-mobile", "?0")
 	req.Header.Set("sec-ch-ua-platform", AppConfig.Browser.SecChUAPlatform)
 	req.Header.Set("Sec-Fetch-Dest", "empty")
@@ -1612,7 +1612,7 @@ func setNotionHeaders(req *http.Request, acc *Account) {
 	req.Header.Set("notion-audit-log-platform", "web")
 
 	// Browser identity
-	req.Header.Set("User-Agent", AppConfig.Browser.UserAgent)
+	req.Header.Set("User-Agent", acc.GetUserAgent())
 	req.Header.Set("Origin", "https://www.notion.so")
 	req.Header.Set("Referer", "https://www.notion.so/"+acc.SpaceID)
 
@@ -1646,7 +1646,7 @@ func FetchModels(acc *Account) ([]ModelEntry, error) {
 	}
 	setNotionHeadersJSON(req, acc)
 
-	client := getChromeHTTPClient(AppConfig.APITimeoutDuration())
+	client := acc.GetHTTPClient(AppConfig.APITimeoutDuration())
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("send request: %w", err)
@@ -1684,7 +1684,7 @@ func setNotionHeadersJSON(req *http.Request, acc *Account) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-	req.Header.Set("sec-ch-ua", AppConfig.Browser.SecChUA)
+	req.Header.Set("sec-ch-ua", acc.GetSecChUa())
 	req.Header.Set("sec-ch-ua-mobile", "?0")
 	req.Header.Set("sec-ch-ua-platform", AppConfig.Browser.SecChUAPlatform)
 	req.Header.Set("Sec-Fetch-Dest", "empty")
@@ -1693,7 +1693,7 @@ func setNotionHeadersJSON(req *http.Request, acc *Account) {
 	req.Header.Set("x-notion-active-user-header", acc.UserID)
 	req.Header.Set("x-notion-space-id", acc.SpaceID)
 	req.Header.Set("notion-client-version", acc.ClientVersion)
-	req.Header.Set("User-Agent", AppConfig.Browser.UserAgent)
+	req.Header.Set("User-Agent", acc.GetUserAgent())
 	req.Header.Set("Origin", "https://www.notion.so")
 
 	if acc.FullCookie != "" {
@@ -1720,7 +1720,7 @@ func setNotionHeadersJSON(req *http.Request, acc *Account) {
 //   - V2 (getAIUsageEligibilityV2): premium credits (monthlyAllocated, etc.)
 func CheckQuota(acc *Account) (*QuotaInfo, error) {
 	body, _ := json.Marshal(map[string]string{"spaceId": acc.SpaceID})
-	client := getChromeHTTPClient(AppConfig.APITimeoutDuration())
+	client := acc.GetHTTPClient(AppConfig.APITimeoutDuration())
 
 	// --- V1: get isEligible + researchModeUsage ---
 	reqV1, err := http.NewRequest("POST", NotionAPIBase+"/getAIUsageEligibility", bytes.NewReader(body))
@@ -1818,7 +1818,7 @@ func CheckUserWorkspace(acc *Account) (int, error) {
 	}
 	setNotionHeadersJSON(req, acc)
 
-	client := getChromeHTTPClient(AppConfig.APITimeoutDuration())
+	client := acc.GetHTTPClient(AppConfig.APITimeoutDuration())
 	resp, err := client.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("send request: %w", err)
@@ -3178,7 +3178,7 @@ func callResearcherInference(acc *Account, messages []ChatMessage, cb StreamCall
 
 	setNotionHeaders(req, acc)
 
-	client := getChromeHTTPClient(AppConfig.ResearchTimeoutDuration())
+	client := acc.GetHTTPClient(AppConfig.ResearchTimeoutDuration())
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("send researcher request: %w", err)

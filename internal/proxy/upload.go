@@ -24,7 +24,7 @@ import (
 // Returns an UploadedAttachment with the attachment:UUID:filename URL for transcript injection.
 func UploadFileToNotion(acc *Account, file *FileAttachment) (*UploadedAttachment, error) {
 	sessionID := generateUUIDv4()
-	client := getChromeHTTPClient(30 * time.Second)
+	client := acc.GetHTTPClient(30 * time.Second)
 
 	// Generate UUID-based filename preserving original extension
 	ext := filepath.Ext(file.FileName)
