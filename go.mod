@@ -1,6 +1,6 @@
 module notion-manager
 
-go 1.26
+go 1.25.0
 
 require (
 	github.com/andybalholm/brotli v1.0.6

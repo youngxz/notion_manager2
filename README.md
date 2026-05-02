@@ -140,6 +140,7 @@ See [Bulk Registration](docs/registration.md) for the protocol, schema, and dash
 
 - `proxy.notion_proxy` (env `NOTION_PROXY`, dashboard editable) tunnels every Notion-bound HTTPS connection — `/v1/messages`, `/admin/refresh`, `/ai` reverse proxy, `msgstore`, WebSocket, **and** the bulk-register MSA flow
 - Schemes: `http`, `https`, `socks5`, `socks5h`
+- **Docker note**: If running in Docker, use `host.docker.internal` instead of `127.0.0.1` to access a proxy on the host machine (e.g. `http://host.docker.internal:7890`), and ensure "Allow LAN connections" is enabled in your proxy software.
 - Per-bulk-register-job override available in the dashboard register modal; empty modal value falls back to the global URL
 
 ### Token usage statistics
