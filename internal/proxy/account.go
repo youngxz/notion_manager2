@@ -722,6 +722,18 @@ func (p *AccountPool) RemoveAccount(acc *Account) {
 	}
 }
 
+// ResetAllTransports tears down the isolated transport environment for every
+// account in the pool. This is used when the global Notion upstream proxy
+// is updated so subsequent requests regenerate their http2.Transport and
+// dial through the new proxy.
+func (p *AccountPool) ResetAllTransports() {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	for _, acc := range p.accounts {
+		acc.ResetTransport()
+	}
+}
+
 // RemoveAccountByEmail drops the in-memory pool entry whose user_email
 // matches (case-insensitive). Does NOT touch disk; callers are responsible
 // for the file lifecycle (used by the dashboard delete endpoint).

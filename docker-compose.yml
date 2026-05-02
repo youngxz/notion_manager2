@@ -14,4 +14,4 @@ services:
     environment:
       - NOTION_PORT=8081
       # - ADMIN_PASSWORD=your_secure_password
-      # - NOTION_PROXY=http://your-proxy:port
+      # - NOTION_PROXY=http://host.docker.internal:7890 # Use host.docker.internal in Docker, not 127.0.0.1
