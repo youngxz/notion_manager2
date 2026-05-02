@@ -251,7 +251,7 @@ func HandleAdminModels(pool *AccountPool, auth *DashboardAuth) http.HandlerFunc 
 
 // HandleAdminSettings handles GET (read) and PUT (update) for dashboard-controlled settings.
 // Settings are persisted to config.yaml using YAML node manipulation to preserve comments.
-func HandleAdminSettings(configPath string, auth *DashboardAuth) http.HandlerFunc {
+func HandleAdminSettings(pool *AccountPool, configPath string, auth *DashboardAuth) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
@@ -341,6 +341,9 @@ func HandleAdminSettings(configPath string, auth *DashboardAuth) http.HandlerFun
 			// continue on their existing connection until completion.
 			if rebuildTransport {
 				RebuildChromeTransport()
+				if pool != nil {
+					pool.ResetAllTransports()
+				}
 			}
 
 			json.NewEncoder(w).Encode(map[string]interface{}{

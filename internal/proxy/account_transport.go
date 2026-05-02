@@ -94,6 +94,22 @@ func (acc *Account) GetHTTPClient(timeout time.Duration) *http.Client {
 	}
 }
 
+// ResetTransport closes any idle connections on this account's transport
+// and clears the isolated environment so it will be regenerated (picking up
+// any new proxy settings) on the next request.
+func (acc *Account) ResetTransport() {
+	acc.mu.Lock()
+	defer acc.mu.Unlock()
+
+	if tr, ok := acc.HTTPTransport.(*http2.Transport); ok && tr != nil {
+		tr.CloseIdleConnections()
+	}
+	acc.HTTPTransport = nil
+	acc.UserAgent = ""
+	acc.SecChUa = ""
+	acc.TLSProfile = ""
+}
+
 // GetUserAgent returns the account's specific user agent
 func (acc *Account) GetUserAgent() string {
 	acc.mu.RLock()

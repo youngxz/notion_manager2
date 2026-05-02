@@ -142,6 +142,7 @@ export OPENAI_API_KEY=<your-api-key>
 
 - `proxy.notion_proxy`（环境变量 `NOTION_PROXY`，Dashboard 在线可改）会代理所有指向 notion.so 的 HTTPS 流量：`/v1/messages`、`/admin/refresh`、`/ai` 反向代理、`msgstore`、WebSocket，**以及批量注册时的 MSA 流程**
 - 支持 `http`、`https`、`socks5`、`socks5h`
+- **Docker 运行注意**：如果在 Docker 中运行，请使用 `host.docker.internal` 替代 `127.0.0.1` 访问宿主机的代理（例如 `http://host.docker.internal:7890`），并在代理软件中开启“允许局域网连接”。
 - Dashboard 批量注册抽屉里可以为单批 Job 单独指定代理；空值回退到全局值
 
 ### 7. Token 用量统计

@@ -67,7 +67,7 @@ func newMux(pool *proxy.AccountPool, accountsDir string, apiKey string, dashAuth
 	mux.HandleFunc("/admin/accounts/delete", proxy.HandleDeleteAccount(pool, accountsDir, dashAuth))
 	mux.HandleFunc("/admin/models", proxy.HandleAdminModels(pool, dashAuth))
 	mux.HandleFunc("/admin/refresh", proxy.HandleAdminRefresh(pool, accountsDir, dashAuth))
-	mux.HandleFunc("/admin/settings", proxy.HandleAdminSettings("config.yaml", dashAuth))
+	mux.HandleFunc("/admin/settings", proxy.HandleAdminSettings(pool, "config.yaml", dashAuth))
 	mux.HandleFunc("/admin/stats", proxy.HandleAdminStats(usageStats, dashAuth))
 
 	// Bulk Microsoft-SSO registration. The legacy synchronous endpoint is
