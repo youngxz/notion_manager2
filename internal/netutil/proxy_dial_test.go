@@ -52,7 +52,7 @@ func TestDialThroughProxyEmptyIsDirect(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	c, err := DialThroughProxy(ctx, "tcp", ln.Addr().String(), "")
+	c, err := DialThroughProxy(ctx, "tcp", ln.Addr().String(), "", nil)
 	if err != nil {
 		t.Fatalf("dial direct: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestDialThroughProxyEmptyIsDirect(t *testing.T) {
 func TestDialThroughProxyRejectsBadScheme(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	_, err := DialThroughProxy(ctx, "tcp", "127.0.0.1:1", "ftp://nope:21")
+	_, err := DialThroughProxy(ctx, "tcp", "127.0.0.1:1", "ftp://nope:21", nil)
 	if err == nil {
 		t.Fatal("expected error for ftp scheme")
 	}
@@ -145,7 +145,7 @@ func TestDialThroughProxyHTTPConnect(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	proxyURL := fmt.Sprintf("http://alice:secret@%s", proxy.Addr().String())
-	conn, err := DialThroughProxy(ctx, "tcp", backend.Addr().String(), proxyURL)
+	conn, err := DialThroughProxy(ctx, "tcp", backend.Addr().String(), proxyURL, nil)
 	if err != nil {
 		t.Fatalf("DialThroughProxy: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestDialThroughProxyHTTPConnectFails(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_, err = DialThroughProxy(ctx, "tcp", "1.2.3.4:80",
-		fmt.Sprintf("http://%s", proxy.Addr().String()))
+		fmt.Sprintf("http://%s", proxy.Addr().String()), nil)
 	if err == nil || !strings.Contains(err.Error(), "407") {
 		t.Fatalf("expected 407 error, got %v", err)
 	}
@@ -309,7 +309,7 @@ func TestDialThroughProxySOCKS5(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	proxyURL := fmt.Sprintf("socks5://bob:hunter2@%s", socksLn.Addr().String())
-	conn, err := DialThroughProxy(ctx, "tcp", backend.Addr().String(), proxyURL)
+	conn, err := DialThroughProxy(ctx, "tcp", backend.Addr().String(), proxyURL, nil)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}

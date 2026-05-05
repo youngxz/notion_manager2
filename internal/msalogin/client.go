@@ -25,13 +25,15 @@ const (
 	msaBase             = "https://login.live.com"
 	msaCheckPasswordURL = msaBase + "/checkpassword.srf"
 
-	defaultUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-		"(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
 )
 
 // Client drives a single Notion SSO login + onboarding for one MSA account.
 // Reuse across multiple accounts is not supported (state is mutated).
 type Client struct {
+	userAgent       string
+	secChUa         string
+	secChUaPlatform string
+
 	main   Token
 	backup *Token
 
@@ -97,13 +99,22 @@ func New(main Token, opts Options) (*Client, error) {
 	// Pin the per-Client transport: the no-proxy case shares a process
 	// singleton so the ALPN cache spans calls; proxied flows get a fresh
 	// transport each so the cache doesn't bleed across upstream proxies.
+	// Lock in profile to strictly prevent fingerprint tearing
+	profile, fullVer, majorVer := netutil.GetCurrentChromeProfile()
+	userAgent := netutil.GenerateUserAgent(fullVer)
+	secChUa := netutil.GenerateSecChUa(majorVer)
+	secChUaPlatform := "\"Windows\""
+
 	var tr http.RoundTripper
 	if opts.ProxyURL == "" {
-		tr = getChromeTransport()
+		tr = getChromeTransport(profile)
 	} else {
-		tr = newChromeTransport(opts.ProxyURL)
+		tr = newChromeTransport(opts.ProxyURL, profile)
 	}
 	c := &Client{
+		userAgent:       userAgent,
+		secChUa:         secChUa,
+		secChUaPlatform: secChUaPlatform,
 		main:     main,
 		backup:   opts.Backup,
 		jar:      jar,
@@ -129,7 +140,10 @@ func (c *Client) logf(format string, args ...interface{}) {
 
 func (c *Client) do(req *http.Request) (*http.Response, []byte, error) {
 	if req.Header.Get("User-Agent") == "" {
-		req.Header.Set("User-Agent", defaultUA)
+		req.Header.Set("User-Agent", c.userAgent)
+		req.Header.Set("sec-ch-ua", c.secChUa)
+		req.Header.Set("sec-ch-ua-mobile", "?0")
+		req.Header.Set("sec-ch-ua-platform", c.secChUaPlatform)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
