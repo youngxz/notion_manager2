@@ -73,7 +73,7 @@ func dialChromeTLS(ctx context.Context, network, addr string) (net.Conn, error) 
 		defer cancel()
 	}
 
-	rawConn, err := netutil.DialThroughProxy(dialCtx, network, addr, AppConfig.NotionProxyURL())
+	rawConn, err := netutil.DialThroughProxy(dialCtx, network, addr, AppConfig.NotionProxyURL(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("tcp dial: %w", err)
 	}

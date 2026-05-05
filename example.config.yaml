@@ -92,9 +92,9 @@ register:
     default_concurrency: 1
 browser:
     # User-Agent string
-    user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+    user_agent: ""
     # sec-ch-ua header value
-    sec_ch_ua: '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"'
+    sec_ch_ua: ""
     # sec-ch-ua-platform header value
     sec_ch_ua_platform: '"Windows"'
 # Model alias mapping: friendly name → Notion internal model ID
