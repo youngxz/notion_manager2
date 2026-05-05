@@ -19,12 +19,7 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-// userAgent header value sent on outgoing CONNECT preludes. Some HTTP
-// proxies reject requests with no UA; this string mimics a recent
-// Chrome on Windows, matching the rest of the project's outbound
-// fingerprint.
-const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-	"(KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+
 
 // DialThroughProxy opens a TCP connection to addr, optionally tunnelling
 // through proxyURL.
@@ -37,7 +32,7 @@ const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 
 // On unsupported schemes returns an explicit error so callers (e.g. the
 // bulk-register UI) can surface "unsupported proxy scheme" instead of
 // silently bypassing.
-func DialThroughProxy(ctx context.Context, network, addr, proxyURL string) (net.Conn, error) {
+func DialThroughProxy(ctx context.Context, network, addr, proxyURL string, reqHeaders http.Header) (net.Conn, error) {
 	base := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
 	if proxyURL == "" {
 		return base.DialContext(ctx, network, addr)
@@ -64,7 +59,7 @@ func DialThroughProxy(ctx context.Context, network, addr, proxyURL string) (net.
 		// Last-ditch: synchronous dial honoring the context deadline.
 		return dialWithCtx(ctx, func() (net.Conn, error) { return d.Dial(network, addr) })
 	case "http", "https":
-		return httpConnect(ctx, base, u, addr)
+		return httpConnect(ctx, base, u, addr, reqHeaders)
 	default:
 		return nil, fmt.Errorf("unsupported proxy scheme: %q", u.Scheme)
 	}
@@ -75,14 +70,26 @@ func DialThroughProxy(ctx context.Context, network, addr, proxyURL string) (net.
 // whether we wrap the proxy hop in TLS — for the moment we don't, since
 // HTTPS-to-proxy is uncommon for SOCKS-replacement use cases. If a real
 // deployment requires it we'd add a TLS layer here.
-func httpConnect(ctx context.Context, base *net.Dialer, proxyURL *url.URL, target string) (net.Conn, error) {
+func httpConnect(ctx context.Context, base *net.Dialer, proxyURL *url.URL, target string, reqHeaders http.Header) (net.Conn, error) {
 	conn, err := base.DialContext(ctx, "tcp", proxyURL.Host)
 	if err != nil {
 		return nil, fmt.Errorf("dial proxy %s: %w", proxyURL.Host, err)
 	}
 	header := make(http.Header)
+	if reqHeaders != nil {
+		for k, vv := range reqHeaders {
+			for _, v := range vv {
+				header.Add(k, v)
+			}
+		}
+	} else {
+		_, fullVer, majorVer := GetCurrentChromeProfile()
+		header.Set("User-Agent", GenerateUserAgent(fullVer))
+		header.Set("sec-ch-ua", GenerateSecChUa(majorVer))
+		header.Set("sec-ch-ua-mobile", "?0")
+		header.Set("sec-ch-ua-platform", "\"Windows\"")
+	}
 	header.Set("Host", target)
-	header.Set("User-Agent", userAgent)
 	if proxyURL.User != nil {
 		username := proxyURL.User.Username()
 		password, _ := proxyURL.User.Password()

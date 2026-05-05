@@ -1,6 +1,7 @@
 package msalogin
 
 import (
+	utls "github.com/refraction-networking/utls"
 	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
@@ -60,7 +61,7 @@ func TestChromeTransportFailsHandshakeOnNonTLS(t *testing.T) {
 		w.Write([]byte("ok"))
 	}))
 	defer srv.Close()
-	tr := newChromeTransport("")
+	tr := newChromeTransport("", utls.HelloChrome_120)
 	req, _ := http.NewRequest("GET", strings.Replace(srv.URL, "http://", "https://", 1), nil)
 	_, err := tr.RoundTrip(req)
 	if err == nil {
@@ -80,7 +81,7 @@ func TestChromeTransportTLSWorksDirect(t *testing.T) {
 	srv.StartTLS()
 	defer srv.Close()
 
-	tr := newChromeTransport("")
+	tr := newChromeTransport("", utls.HelloChrome_120)
 	req, _ := http.NewRequest("GET", srv.URL, nil)
 	resp, err := tr.RoundTrip(req)
 	if err != nil {

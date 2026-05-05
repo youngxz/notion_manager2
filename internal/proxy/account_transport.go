@@ -46,7 +46,12 @@ func (acc *Account) initAccountEnvironment() {
 				defer cancel()
 			}
 
-			rawConn, err := netutil.DialThroughProxy(dialCtx, network, addr, AppConfig.NotionProxyURL())
+			header := make(http.Header)
+			header.Set("User-Agent", netutil.GenerateUserAgent(fullVer))
+			header.Set("sec-ch-ua", netutil.GenerateSecChUa(majorVer))
+			header.Set("sec-ch-ua-mobile", "?0")
+			header.Set("sec-ch-ua-platform", "\"Windows\"")
+			rawConn, err := netutil.DialThroughProxy(dialCtx, network, addr, AppConfig.NotionProxyURL(), header)
 			if err != nil {
 				return nil, fmt.Errorf("tcp dial: %w", err)
 			}

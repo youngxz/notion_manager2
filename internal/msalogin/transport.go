@@ -26,8 +26,8 @@ import (
 // per-host protocol decision learned from the first ALPN result and
 // dispatch the matching sub-transport.
 var (
-	chromeTransportInst *chromeTransport
-	chromeTransportOnce sync.Once
+	chromeTransportMap = make(map[utls.ClientHelloID]*chromeTransport)
+	chromeTransportMu  sync.Mutex
 )
 
 type chromeTransport struct {
@@ -35,6 +35,7 @@ type chromeTransport struct {
 	// means dial directly. Stored on the transport so per-job overrides
 	// don't have to thread an extra arg through h1/h2 dial callbacks.
 	proxyURL string
+	profile  utls.ClientHelloID
 
 	h1 *http.Transport
 	h2 *http2.Transport
@@ -47,19 +48,24 @@ type chromeTransport struct {
 // that don't care about proxies. Per-Client transports with proxy overrides
 // go through newChromeTransport so the ALPN cache stays partitioned by
 // upstream.
-func getChromeTransport() http.RoundTripper {
-	chromeTransportOnce.Do(func() {
-		chromeTransportInst = newChromeTransport("")
-	})
-	return chromeTransportInst
+func getChromeTransport(profile utls.ClientHelloID) http.RoundTripper {
+	chromeTransportMu.Lock()
+	defer chromeTransportMu.Unlock()
+	if tr, ok := chromeTransportMap[profile]; ok {
+		return tr
+	}
+	tr := newChromeTransport("", profile)
+	chromeTransportMap[profile] = tr
+	return tr
 }
 
 // newChromeTransport builds a transport that dials TCP through proxyURL.
 // Empty proxyURL keeps the dial direct. The returned transport is *not*
 // shared — callers that need a singleton should use getChromeTransport.
-func newChromeTransport(proxyURL string) *chromeTransport {
+func newChromeTransport(proxyURL string, profile utls.ClientHelloID) *chromeTransport {
 	ct := &chromeTransport{
 		proxyURL: proxyURL,
+		profile:  profile,
 		protoFor: make(map[string]string),
 	}
 	ct.h1 = &http.Transport{
@@ -182,11 +188,11 @@ func (c *chromeTransport) dialChrome(ctx context.Context, network, addr string, 
 	if err != nil {
 		host = addr
 	}
-	rawConn, err := netutil.DialThroughProxy(ctx, network, addr, c.proxyURL)
+	rawConn, err := netutil.DialThroughProxy(ctx, network, addr, c.proxyURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("tcp dial: %w", err)
 	}
-	profile, _, _ := netutil.GetCurrentChromeProfile()
+	profile := c.profile
 	cfg := &utls.Config{
 		ServerName:         host,
 		InsecureSkipVerify: false,

@@ -10,15 +10,17 @@ import (
 var chromeProfiles = []utls.ClientHelloID{
 	utls.HelloChrome_120,
 	utls.HelloChrome_131,
+	utls.HelloChrome_133,
 }
 
 var chromeVersions = []string{
 	"120.0.0.0",
 	"131.0.0.0",
+	"133.0.0.0",
 }
 
 var majorVersions = []string{
-	"120", "131",
+	"120", "131", "133",
 }
 
 var (
@@ -58,5 +60,5 @@ func GenerateUserAgent(fullVersion string) string {
 
 // GenerateSecChUa returns a generated sec-ch-ua header for the given major version.
 func GenerateSecChUa(majorVersion string) string {
-	return `"Not(A:Brand";v="99", "Google Chrome";v="` + majorVersion + `", "Chromium";v="` + majorVersion + `"`
+	return `"Chromium";v="` + majorVersion + `", "Not(A:Brand";v="24", "Google Chrome";v="` + majorVersion + `"`
 }

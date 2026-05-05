@@ -57,7 +57,7 @@ func NewReverseProxy(pool *AccountPool) *ReverseProxy {
 				Jar: jar,
 				Transport: &http.Transport{
 					DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-						return netutil.DialThroughProxy(ctx, network, addr, AppConfig.NotionProxyURL())
+						return netutil.DialThroughProxy(ctx, network, addr, AppConfig.NotionProxyURL(), nil)
 					},
 					ForceAttemptHTTP2:   false,
 					TLSNextProto:        make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
@@ -518,7 +518,7 @@ func (rp *ReverseProxy) proxyWebSocket(w http.ResponseWriter, r *http.Request, s
 	// reverse proxy.
 	dialCtx, dialCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer dialCancel()
-	rawConn, err := netutil.DialThroughProxy(dialCtx, "tcp", targetHost+":443", AppConfig.NotionProxyURL())
+	rawConn, err := netutil.DialThroughProxy(dialCtx, "tcp", targetHost+":443", AppConfig.NotionProxyURL(), nil)
 	if err != nil {
 		log.Printf("[rproxy-ws] dial %s error: %v", targetHost, err)
 		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
